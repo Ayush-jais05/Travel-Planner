@@ -15,15 +15,6 @@
 
 ---
 
-## 📸 Screenshots
-
-| Chat + Itinerary | Budget Breakdown |
-|---|---|
-| ![Chat UI](https://via.placeholder.com/400x250?text=Chat+UI) | ![Budget](https://via.placeholder.com/400x250?text=Budget+Breakdown) |
-
-> _Replace with actual screenshots after deployment_
-
----
 
 ## ✨ Features
 
