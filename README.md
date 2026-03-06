@@ -1,6 +1,6 @@
 # ✈️ AI Travel Planner
 
-> Conversational AI travel planner — generates day-wise itineraries, budget breakdowns & real-time refinements using Groq LLaMA 3.3
+> Conversational AI travel planner — generates day-wise itineraries, budget breakdowns, weather-aware planning, packing lists & PDF export using Groq LLaMA 3.3
 
 [![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://ai-travel-planner.streamlit.app)
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://python.org)
@@ -15,16 +15,17 @@
 
 ---
 
-
 ## ✨ Features
 
-- 🧠 **Natural Language Input** — type your trip request in plain English
-- 📅 **Day-wise Itinerary** — morning, afternoon, evening breakdown with real place names
+- 🧠 **Natural Language Input** — type your trip in plain English
+- 📅 **Day-wise Itinerary** — morning, afternoon, evening with real place names
 - 💸 **Smart Budget Breakdown** — auto-split across stay, food, transport & activities
-- 💬 **Real-time Chat Refinement** — say "make it adventurous", "add 5k budget", "suggest hotels"
-- 🧠 **Full Conversation Memory** — remembers your trip context throughout the chat
+- 🌤️ **Weather-Aware Planning** — mention travel month, date, or weather type → itinerary updates
+- 👥 **Group Size Support** — solo, couple, family or group → per-person budget + tailored activities
+- 🎒 **Packing List Generator** — weather + destination + group aware
+- ⬇️ **PDF & Text Export** — download full itinerary + budget + packing list
+- 💬 **Full Conversation Memory** — remembers your trip throughout the chat
 - 🎭 **Mood-based Planning** — adventure, chill, romantic, family, culture
-- ⬇️ **Download Itinerary** — save your trip plan as a text file
 
 ---
 
@@ -33,21 +34,40 @@
 ### Plan a new trip
 ```
 3 days in Manali, ₹12k, adventure vibe
-```
-```
 5 day Goa trip under ₹20,000, chill
-```
-```
 Weekend trip to Coorg, ₹8k, romantic
+3 days Amsterdam, €500, culture
+Family of 4 in Kerala, ₹30k, 5 days
 ```
 
-### Refine your plan (remembers full context)
+### Refine with weather
+```
+I'm going in December
+Going tomorrow
+Travelling next week
+It's going to be rainy
+Planning for monsoon season
+Going on March 15th
+```
+
+### Update group size
+```
+Travelling with 3 friends
+It's a couple trip
+Family of 4
+Solo trip
+Me and my girlfriend
+Group of 6
+```
+
+### Other refinements
 ```
 Make it more adventurous
 Add 5k to my budget
+Change budget to 25k
 Suggest some hotels
-Change vibe to chill
 What should I pack?
+Generate packing list
 Reduce accommodation cost
 ```
 
@@ -56,22 +76,30 @@ Reduce accommodation cost
 ## 🧠 How It Works
 
 ```
-User: "3 days Manali ₹12k adventure"
+User: "3 days Manali ₹12k adventure, group of 4"
            ↓
    Intent Extraction (LLaMA 3.3)
-   → Destination: Manali | Days: 3 | Budget: ₹12k | Mood: Adventure
+   → Destination: Manali | Days: 3 | Budget: ₹12k
+   → Mood: Adventure | Persons: 4 | Group: group
            ↓
-   Itinerary Generator (LLaMA 3.3)
-   → Day 1: Solang Valley → Day 2: Rohtang → Day 3: Old Manali
+   Itinerary Generator → Day-wise plan with real places
            ↓
-   Budget Splitter
-   → Stay: ₹3.6k | Food: ₹2.4k | Transport: ₹2.4k | Activities: ₹3k
+   Budget Splitter → Per person breakdown
            ↓
    Displayed in Streamlit (chat left | itinerary + budget right)
            ↓
-   User: "add cafes and reduce stay cost"
+   User: "going in December"
            ↓
-   LLM updates itinerary with full context memory → panel refreshes
+   Weather Service (Open-Meteo API / seasonal estimate)
+   → Cold, 5-10°C, clear skies
+           ↓
+   Itinerary updates for weather conditions
+           ↓
+   User: "generate packing list"
+           ↓
+   Packing list → weather + group + destination aware
+           ↓
+   Click Download PDF → full formatted PDF
 ```
 
 ---
@@ -83,7 +111,8 @@ User: "3 days Manali ₹12k adventure"
 | Frontend | Streamlit |
 | Backend | Python 3.10+ |
 | LLM | Groq — LLaMA 3.3 70B Versatile (free) |
-| Intent Parsing | LLM structured JSON output |
+| Weather API | Open-Meteo (free, no key needed) |
+| PDF Export | fpdf2 |
 | Session Memory | Streamlit session_state |
 | Deployment | Streamlit Cloud |
 
@@ -101,18 +130,21 @@ Travel-Planner/
 ├── README.md
 │
 ├── llm/
-│   ├── client.py             # Groq client wrapper
 │   ├── prompts.py            # All prompt templates
-│   └── chains.py             # Intent extraction + generation chains
+│   └── chains.py             # LLM chains + generation functions
 │
 ├── services/
 │   ├── planner.py            # Core trip planning logic
 │   ├── budget.py             # Budget split + formatting
-│   └── chat_service.py       # Conversation handler with full memory
+│   ├── chat_service.py       # Conversation handler with full memory
+│   └── weather.py            # Open-Meteo weather service
 │
-└── ui/
-    ├── chat_ui.py            # Chat panel
-    └── itinerary_view.py     # Trip display panel
+├── ui/
+│   ├── chat_ui.py            # Chat panel
+│   └── itinerary_view.py     # Trip display panel
+│
+└── utils/
+    └── pdf_export.py         # PDF generation
 ```
 
 ---
@@ -148,6 +180,8 @@ GROQ_API_KEY=your_groq_api_key_here
 ```
 Get your **free** Groq key at → [console.groq.com](https://console.groq.com)
 
+> No OpenWeatherMap key needed — uses Open-Meteo (100% free, no registration)
+
 ### 5. Run
 ```bash
 streamlit run app.py
@@ -159,7 +193,7 @@ streamlit run app.py
 
 1. Push your code to GitHub
 2. Go to [share.streamlit.io](https://share.streamlit.io)
-3. Connect your GitHub repo: `Ayush-jais05/Travel-Planner`
+3. Connect repo: `Ayush-jais05/Travel-Planner`
 4. Main file: `app.py`
 5. Add secret in **App Settings → Secrets**:
 ```toml
@@ -176,6 +210,7 @@ streamlit==1.45.1
 groq==0.13.0
 python-dotenv==1.0.1
 requests==2.32.3
+fpdf2==2.7.9
 ```
 
 ---
@@ -187,11 +222,14 @@ requests==2.32.3
 - [x] Budget breakdown by category
 - [x] Real-time chat refinement
 - [x] Full conversation memory
-- [x] Download itinerary
-- [ ] Weather-aware planning
-- [ ] Google Maps integration
+- [x] Weather-aware planning (Open-Meteo API)
+- [x] Group size & per-person budget
+- [x] Packing list generator
+- [x] PDF + Text export
+- [ ] Google Maps links for every place
 - [ ] Multi-language support
 - [ ] Trip history & saved plans
+- [ ] Voice input
 
 ---
 

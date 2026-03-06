@@ -14,7 +14,7 @@ class TripPDF(FPDF):
     def header(self):
         self.set_font("Helvetica", "B", 10)
         self.set_text_color(120, 120, 120)
-        self.cell(0, 8, f"AI Travel Planner  |  {self.destination} Trip", align="L")
+        self.cell(0, 8, f"AI Travel Planner  |  {_clean_text(self.destination)} Trip", align="L")
         self.ln(2)
         self.set_draw_color(200, 200, 200)
         self.line(10, self.get_y(), 200, self.get_y())
@@ -28,13 +28,25 @@ class TripPDF(FPDF):
 
 
 def _clean_text(text: str) -> str:
-    """Remove markdown symbols and clean text for PDF."""
+    """Remove markdown, emoji and unsupported unicode chars for PDF."""
+    if not text:
+        return ""
+
+    # Replace currency symbols with ASCII equivalents FIRST
+    text = text.replace("₹", "Rs.")
+    text = text.replace("€", "EUR")
+    text = text.replace("£", "GBP")
+    text = text.replace("$", "USD")
+    text = text.replace("¥", "JPY")
+
     # Remove markdown bold/italic
     text = re.sub(r"\*\*(.*?)\*\*", r"\1", text)
-    text = re.sub(r"\*(.*?)\*", r"\1", text)
+    text = re.sub(r"\*(.*?)\*",     r"\1", text)
+
     # Remove markdown headers
     text = re.sub(r"^#{1,6}\s*", "", text, flags=re.MULTILINE)
-    # Remove emoji (FPDF doesn't support unicode emoji well)
+
+    # Remove all emoji and non-latin unicode
     emoji_pattern = re.compile(
         "["
         "\U0001F600-\U0001F64F"
@@ -44,18 +56,41 @@ def _clean_text(text: str) -> str:
         "\U00002700-\U000027BF"
         "\U0001F900-\U0001F9FF"
         "\U00002600-\U000026FF"
+        "\U0001FA00-\U0001FA9F"
+        "\U0001FAB0-\U0001FAD6"
+        "\U00002500-\U00002BEF"
+        "\U00010000-\U0010FFFF"
         "]+",
         flags=re.UNICODE
     )
     text = emoji_pattern.sub("", text)
+
+    # Remove any remaining non-latin1 characters
+    text = text.encode("latin-1", errors="ignore").decode("latin-1")
+
     text = text.strip()
     return text
 
 
+def _format_currency_pdf(amount, currency: str) -> str:
+    """Format currency for PDF — no unicode symbols."""
+    try:
+        amount = float(amount)
+    except Exception:
+        return str(amount)
+
+    if currency == "INR":
+        if amount >= 100000:
+            return f"Rs.{amount/100000:.1f}L"
+        elif amount >= 1000:
+            return f"Rs.{amount/1000:.1f}k"
+        return f"Rs.{int(amount)}"
+    return f"{currency} {int(amount)}"
+
+
 def _section_title(pdf: FPDF, title: str):
-    """Render a section title."""
     pdf.set_font("Helvetica", "B", 13)
-    pdf.set_text_color(37, 99, 235)  # Blue
+    pdf.set_text_color(37, 99, 235)
     pdf.set_fill_color(239, 246, 255)
     pdf.cell(0, 8, _clean_text(title), fill=True, ln=True)
     pdf.ln(2)
@@ -63,7 +98,6 @@ def _section_title(pdf: FPDF, title: str):
 
 
 def _body_text(pdf: FPDF, text: str, indent: int = 0):
-    """Render body text with optional indent."""
     pdf.set_font("Helvetica", "", 10)
     pdf.set_text_color(40, 40, 40)
     pdf.set_x(10 + indent)
@@ -71,11 +105,11 @@ def _body_text(pdf: FPDF, text: str, indent: int = 0):
 
 
 def _render_trip_header(pdf: FPDF, state: dict):
-    """Render the trip summary header page."""
     currency = state.get("current_currency", "INR")
-    total    = state.get("total_budget", 0)
-    persons  = state.get("persons", 1)
+    total    = state.get("total_budget", 0) or 0
+    persons  = state.get("persons", 1) or 1
     per_p    = state.get("per_person_budget") or (int(total / persons) if persons > 0 else total)
+    days     = state.get("days", "-")
 
     # Big title
     pdf.set_font("Helvetica", "B", 22)
@@ -94,21 +128,22 @@ def _render_trip_header(pdf: FPDF, state: dict):
     pdf.set_line_width(0.2)
     pdf.ln(6)
 
-    # Trip details grid
+    # Trip details
     details = [
-        ("Duration",    f"{state.get('days', '-')} days"),
-        ("Total Budget", format_currency(total, currency)),
-        ("Per Person",  format_currency(per_p, currency)),
-        ("Travellers",  f"{persons} ({state.get('group_type', 'solo').capitalize()})"),
-        ("Vibe",        (state.get("mood") or "chill").capitalize()),
-        ("Weather",     state.get("weather_desc", "Not specified")),
+        ("Duration",     f"{days} days"),
+        ("Total Budget", _format_currency_pdf(total, currency)),
+        ("Per Person",   _format_currency_pdf(per_p, currency)),
+        ("Travellers",   f"{persons} ({(state.get('group_type') or 'solo').capitalize()})"),
+        ("Vibe",         (state.get("mood") or "chill").capitalize()),
+        ("Weather",      _clean_text(state.get("weather_desc", "Not specified"))),
     ]
     if state.get("travel_month"):
         details.append(("Travel Month", state["travel_month"]))
     if state.get("travel_season"):
         details.append(("Season", state["travel_season"]))
+    if state.get("travel_date"):
+        details.append(("Travel Date", state["travel_date"]))
 
-    pdf.set_font("Helvetica", "", 11)
     for label, value in details:
         pdf.set_font("Helvetica", "B", 11)
         pdf.set_text_color(60, 60, 60)
@@ -118,19 +153,17 @@ def _render_trip_header(pdf: FPDF, state: dict):
         pdf.cell(0, 8, _clean_text(str(value)), ln=True)
 
     pdf.ln(4)
-    # Divider
     pdf.set_draw_color(200, 200, 200)
     pdf.line(10, pdf.get_y(), 200, pdf.get_y())
     pdf.ln(6)
 
 
 def _render_itinerary(pdf: FPDF, itinerary: str):
-    """Parse and render the itinerary section."""
     _section_title(pdf, "Your Itinerary")
 
     lines = itinerary.split("\n")
     for line in lines:
-        line = line.strip()
+        line  = line.strip()
         if not line:
             pdf.ln(2)
             continue
@@ -139,7 +172,7 @@ def _render_itinerary(pdf: FPDF, itinerary: str):
         if not clean:
             continue
 
-        # Day headers (### Day 1: ...)
+        # Day headers
         if re.match(r"^(###?\s*)?Day\s+\d+", line, re.IGNORECASE):
             pdf.ln(2)
             pdf.set_font("Helvetica", "B", 12)
@@ -148,15 +181,15 @@ def _render_itinerary(pdf: FPDF, itinerary: str):
             pdf.cell(0, 8, clean, fill=True, ln=True)
             pdf.set_text_color(0, 0, 0)
 
-        # Sub-sections (Morning / Afternoon / Evening)
-        elif any(t in line for t in ["Morning:", "Afternoon:", "Evening:", "Morning", "Afternoon", "Evening"]):
+        # Time-of-day headers
+        elif any(t in line for t in ["Morning:", "Afternoon:", "Evening:"]):
             pdf.set_font("Helvetica", "B", 10)
             pdf.set_text_color(60, 60, 60)
             pdf.set_x(14)
             pdf.multi_cell(186, 6, clean)
             pdf.set_text_color(0, 0, 0)
 
-        # Section headers (Local Tips, Must Try Food)
+        # Section headers
         elif re.match(r"^(Local Tips|Must Try|Tips|Food)", clean, re.IGNORECASE):
             pdf.ln(2)
             pdf.set_font("Helvetica", "B", 11)
@@ -169,9 +202,8 @@ def _render_itinerary(pdf: FPDF, itinerary: str):
             pdf.set_font("Helvetica", "", 10)
             pdf.set_text_color(40, 40, 40)
             pdf.set_x(16)
-            pdf.multi_cell(184, 6, f"• {clean.lstrip('-').lstrip('*').lstrip('•').strip()}")
+            pdf.multi_cell(184, 6, f"- {clean.lstrip('-').lstrip('*').lstrip('•').strip()}")
 
-        # Normal text
         else:
             _body_text(pdf, clean)
 
@@ -179,7 +211,6 @@ def _render_itinerary(pdf: FPDF, itinerary: str):
 
 
 def _render_budget(pdf: FPDF, budget: dict, currency: str, total: float):
-    """Render budget breakdown as a table."""
     _section_title(pdf, "Budget Breakdown")
 
     categories = [
@@ -194,19 +225,18 @@ def _render_budget(pdf: FPDF, budget: dict, currency: str, total: float):
     pdf.set_font("Helvetica", "B", 10)
     pdf.set_fill_color(37, 99, 235)
     pdf.set_text_color(255, 255, 255)
-    pdf.cell(100, 8, "Category", border=0, fill=True)
-    pdf.cell(50,  8, "Amount", border=0, fill=True)
+    pdf.cell(100, 8, "Category",   border=0, fill=True)
+    pdf.cell(50,  8, "Amount",     border=0, fill=True)
     pdf.cell(40,  8, "% of Total", border=0, fill=True, ln=True)
 
-    # Table rows
-    pdf.set_font("Helvetica", "", 10)
     fill = False
+    pdf.set_font("Helvetica", "", 10)
     for label, amount in categories:
         pdf.set_fill_color(239, 246, 255) if fill else pdf.set_fill_color(255, 255, 255)
         pdf.set_text_color(30, 30, 30)
         pct = f"{(amount / total * 100):.1f}%" if total > 0 else "0%"
         pdf.cell(100, 7, label, border=0, fill=True)
-        pdf.cell(50,  7, format_currency(amount, currency), border=0, fill=True)
+        pdf.cell(50,  7, _format_currency_pdf(amount, currency), border=0, fill=True)
         pdf.cell(40,  7, pct, border=0, fill=True, ln=True)
         fill = not fill
 
@@ -215,12 +245,11 @@ def _render_budget(pdf: FPDF, budget: dict, currency: str, total: float):
     pdf.set_fill_color(220, 230, 255)
     pdf.set_text_color(37, 99, 235)
     pdf.cell(100, 8, "TOTAL", border=0, fill=True)
-    pdf.cell(50,  8, format_currency(total, currency), border=0, fill=True)
+    pdf.cell(50,  8, _format_currency_pdf(total, currency), border=0, fill=True)
     pdf.cell(40,  8, "100%", border=0, fill=True, ln=True)
     pdf.set_text_color(0, 0, 0)
     pdf.ln(4)
 
-    # Budget tips
     tips = budget.get("tips", [])
     if tips:
         pdf.set_font("Helvetica", "B", 10)
@@ -230,13 +259,12 @@ def _render_budget(pdf: FPDF, budget: dict, currency: str, total: float):
         pdf.set_text_color(40, 40, 40)
         for tip in tips:
             pdf.set_x(14)
-            pdf.multi_cell(186, 6, f"• {_clean_text(tip)}")
+            pdf.multi_cell(186, 6, f"- {_clean_text(tip)}")
 
     pdf.ln(4)
 
 
 def _render_packing_list(pdf: FPDF, packing: dict):
-    """Render categorized packing list."""
     _section_title(pdf, "Packing List")
 
     category_labels = {
@@ -260,11 +288,10 @@ def _render_packing_list(pdf: FPDF, packing: dict):
         pdf.set_font("Helvetica", "", 10)
         pdf.set_text_color(40, 40, 40)
 
-        # 2-column layout for packing items
         col_width = 90
         for i in range(0, len(items), 2):
-            left  = f"• {_clean_text(items[i])}"
-            right = f"• {_clean_text(items[i+1])}" if i+1 < len(items) else ""
+            left  = f"- {_clean_text(items[i])}"
+            right = f"- {_clean_text(items[i+1])}" if i + 1 < len(items) else ""
             pdf.set_x(14)
             pdf.cell(col_width, 6, left)
             pdf.cell(col_width, 6, right, ln=True)
@@ -276,33 +303,28 @@ def _render_packing_list(pdf: FPDF, packing: dict):
 
 def generate_pdf(state: dict) -> bytes:
     """
-    Master function — generates full trip PDF.
-    Takes streamlit session state dict.
-    Returns PDF as bytes for Streamlit download button.
+    Master PDF generator.
+    Takes streamlit session state dict → returns PDF bytes.
     """
     destination = state.get("destination", "Trip")
     currency    = state.get("current_currency", "INR")
-    total       = state.get("total_budget", 0)
+    total       = state.get("total_budget", 0) or 0
     itinerary   = state.get("current_itinerary", "")
-    budget      = state.get("current_budget", {})
+    budget      = state.get("current_budget", {}) or {}
     packing     = state.get("packing_list")
 
     pdf = TripPDF(destination=destination)
     pdf.add_page()
 
-    # 1. Trip header
     _render_trip_header(pdf, state)
 
-    # 2. Itinerary
     if itinerary:
         _render_itinerary(pdf, itinerary)
 
-    # 3. Budget breakdown
     if budget:
         pdf.add_page()
         _render_budget(pdf, budget, currency, total)
 
-    # 4. Packing list (if generated)
     if packing:
         _render_packing_list(pdf, packing)
 
